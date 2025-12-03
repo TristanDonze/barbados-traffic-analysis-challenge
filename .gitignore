@@ -4,5 +4,6 @@ __pycache__/
 *.pyc
 .DS_Store
 .idea/
-data/videos/
+data/
 results/
+kaggle_cache
