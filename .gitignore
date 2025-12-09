@@ -4,9 +4,9 @@ __pycache__/
 *.pyc
 .DS_Store
 .idea/
-data/features/
 data/videos/
 data/videos_not_full/
 results/
 kaggle_cache
 models/
+prototype/
