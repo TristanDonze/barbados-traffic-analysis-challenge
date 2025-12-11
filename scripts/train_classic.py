@@ -1,0 +1,156 @@
+import os, sys
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(project_root)
+
+import copy
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from sklearn.metrics import accuracy_score, f1_score
+from sklearn.utils.class_weight import compute_class_weight
+
+from src.dataset.dataset import TrainDataset
+from src.models.TCN import MultiHeadSequenceModel
+
+FEATURES_PATH = "data/features/final_features.csv"
+TRAIN_CSV_PATH = "data/Train.csv"
+SEQ_LEN = 15
+HORIZON = 7
+EMBARGO = 0
+BATCH_SIZE = 32
+LR = 0.001
+EPOCHS = 100
+DEVICE = torch.device("cuda" if torch.cuda.is_available(
+) else "mps" if torch.backends.mps.is_available() else "cpu")
+
+
+def train_one_epoch(model, loader, criterion, optimizer, device):
+    model.train()
+    running_loss = 0.0
+    correct = 0
+    total = 0
+
+    for inputs, targets in loader:
+        inputs, targets = inputs.to(device), targets.to(device)
+
+        optimizer.zero_grad()
+        outputs = model(inputs)
+
+        outputs_flat = outputs.view(-1, outputs.shape[-1])
+        targets_flat = targets.view(-1)
+
+        loss = criterion(outputs_flat, targets_flat)
+        loss.backward()
+        optimizer.step()
+
+        running_loss += loss.item()
+
+        _, predicted = torch.max(outputs_flat.data, 1)
+        total += targets_flat.size(0)
+        correct += (predicted == targets_flat).sum().item()
+
+    return running_loss / len(loader), 100 * correct / total
+
+
+def evaluate(model, loader, device):
+    model.eval()
+    all_preds = []
+    all_targets = []
+
+    with torch.no_grad():
+        for inputs, targets in loader:
+            inputs = inputs.to(device)
+            outputs = model(inputs)
+            preds = torch.argmax(outputs, dim=-1)
+            all_preds.append(preds.cpu().numpy().flatten())
+            all_targets.append(targets.cpu().numpy().flatten())
+
+    y_pred = np.concatenate(all_preds)
+    y_true = np.concatenate(all_targets)
+
+    acc = accuracy_score(y_true, y_pred)
+    f1 = f1_score(y_true, y_pred, average='macro')
+    final_score = (0.7 * f1) + (0.3 * acc)
+
+    return final_score, f1, acc
+
+
+def train():
+    print(f"Running on device: {DEVICE}")
+
+    train_ds = TrainDataset(FEATURES_PATH, TRAIN_CSV_PATH, SEQ_LEN,
+                            EMBARGO, HORIZON, split_ratio=0.8, mode='train', aggregate=True)
+    train_stats = (train_ds.mean, train_ds.std)
+    val_ds = TrainDataset(FEATURES_PATH, TRAIN_CSV_PATH, SEQ_LEN, EMBARGO,
+                          HORIZON, split_ratio=0.8, mode='test', aggregate=True, stats=train_stats)
+
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
+    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False)
+
+    all_targets = []
+    for _, y in train_ds:
+        all_targets.append(y.numpy().flatten())
+    y_all = np.concatenate(all_targets)
+    classes = np.unique(y_all)
+    weights = compute_class_weight(
+        class_weight='balanced', classes=classes, y=y_all)
+    weights_tensor = torch.tensor(weights, dtype=torch.float32).to(DEVICE)
+    print(f"Weights: {weights}")
+
+    model = MultiHeadSequenceModel(
+        input_dim=328, hidden_channels=[64, 64, 64, 64],
+        seq_len=SEQ_LEN, prediction_steps=HORIZON, num_streams=4, num_classes=4, dropout=0.3,
+    ).to(DEVICE)
+
+    criterion = nn.CrossEntropyLoss(weight=weights_tensor)
+    optimizer = optim.Adam(model.parameters(), lr=LR)
+
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='max', factor=0.5, patience=3)
+
+    best_score = 0.0
+    best_model_wts = copy.deepcopy(model.state_dict())
+
+    print("\n--- Starting Training ---")
+    for epoch in range(EPOCHS):
+        model.train()
+        running_loss = 0.0
+
+        for inputs, targets in train_loader:
+            inputs, targets = inputs.to(DEVICE), targets.to(DEVICE)
+
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs.view(-1, 4), targets.view(-1))
+            loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+            optimizer.step()
+            running_loss += loss.item()
+
+        avg_loss = running_loss / len(train_loader)
+        score, f1, acc = evaluate(model, val_loader, DEVICE)
+
+        scheduler.step(score)
+
+        if score > best_score:
+            best_score = score
+            best_model_wts = copy.deepcopy(model.state_dict())
+            torch.save(model.state_dict(), "models/best_model_classic.pth")
+        print(
+            f"Epoch {epoch+1} | Loss: {avg_loss:.4f} | Score: {score:.4f} (F1: {f1:.4f} Acc : {acc:.4f}) Learning Rate : {optimizer.param_groups[0]['lr']:.6f} [BEST]")
+    else:
+        print(
+            f"Epoch {epoch+1} | Loss: {avg_loss:.4f} | Score: {score:.4f} (F1: {f1:.4f} Acc : {acc:.4f}) Learning Rate : {optimizer.param_groups[0]['lr']:.6f}")
+
+    print(f"\nTraining Complete. Best Score: {best_score:.4f}")
+
+    model.load_state_dict(best_model_wts)
+
+
+if __name__ == "__main__":
+    train()
