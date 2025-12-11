@@ -15,7 +15,7 @@ from sklearn.utils.class_weight import compute_class_weight
 from src.dataset.dataset import TrainDataset
 from src.models.TCN import UniversalTrafficModel
 
-from config import SEQ_LEN, EMBARGO, HORIZON, BATCH_SIZE, INPUT_DIM, AGGREGATE, HIDDEN_CHANNELS, LR, EPOCHS
+from config import DROPOUT, SEQ_LEN, EMBARGO, HORIZON, BATCH_SIZE, INPUT_DIM, AGGREGATE, USE_ATTENTION, HIDDEN_CHANNELS, LR, EPOCHS
 
 FEATURES_PATH = "data/features/final_features.csv"
 TRAIN_CSV_PATH = "data/Train.csv"
@@ -98,15 +98,18 @@ def train():
 
     model = UniversalTrafficModel(
         input_dim=INPUT_DIM, hidden_channels=HIDDEN_CHANNELS,
-        seq_len=SEQ_LEN, prediction_steps=HORIZON, num_classes=4, dropout=0.3,
+        seq_len=SEQ_LEN, prediction_steps=HORIZON, num_classes=4, dropout=DROPOUT, use_attention=USE_ATTENTION,
         aggregate=AGGREGATE
     ).to(DEVICE)
+    
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Infos : \n - Input Dim : {INPUT_DIM} \n - Aggregate : {AGGREGATE} \n - Use Attention : {USE_ATTENTION} \n - Model has {num_params} trainable parameters.\n - Batch Size : {BATCH_SIZE}\n - Hidden Channels : {HIDDEN_CHANNELS}\n - Dropout : {DROPOUT}")
 
     criterion = nn.CrossEntropyLoss(weight=weights_tensor)
     optimizer = optim.Adam(model.parameters(), lr=LR)
 
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='max', factor=0.5, patience=3)
+        optimizer, mode='max', factor=0.5, patience=3, min_lr=1e-4)
 
     best_score = 0.0
     best_model_wts = copy.deepcopy(model.state_dict())

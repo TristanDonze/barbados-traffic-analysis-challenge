@@ -16,7 +16,7 @@ from sklearn.utils.class_weight import compute_class_weight
 from src.dataset.dataset import TrainDataset
 from src.models.TCN import UniversalTrafficModel
 
-from config import SEQ_LEN, EMBARGO, HORIZON, BATCH_SIZE, INPUT_DIM, AGGREGATE, HIDDEN_CHANNELS, LR, EPOCHS, N_SPLITS
+from config import DROPOUT, SEQ_LEN, EMBARGO, HORIZON, BATCH_SIZE, INPUT_DIM, USE_ATTENTION, AGGREGATE, HIDDEN_CHANNELS, LR, EPOCHS_PER_FOLD, N_SPLITS
 
 
 FEATURES_PATH = "data/features/final_features.csv"
@@ -109,19 +109,22 @@ def train_kfold():
 
         model = UniversalTrafficModel(
             input_dim=INPUT_DIM, hidden_channels=HIDDEN_CHANNELS,
-            seq_len=SEQ_LEN, prediction_steps=HORIZON, num_classes=4, dropout=0.3,
+            seq_len=SEQ_LEN, prediction_steps=HORIZON, num_classes=4, dropout=DROPOUT, use_attention=USE_ATTENTION,
             aggregate=AGGREGATE
         ).to(DEVICE)
+        
+        num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"Model has {num_params} trainable parameters.")
 
         criterion = nn.CrossEntropyLoss(weight=weights_tensor)
         optimizer = optim.Adam(model.parameters(), lr=LR)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='max', factor=0.5, patience=3)
+            optimizer, mode='max', factor=0.5, patience=3, min_lr=1e-4)
 
         best_score = 0.0
         best_model_wts = copy.deepcopy(model.state_dict())
 
-        for epoch in range(EPOCHS):
+        for epoch in range(EPOCHS_PER_FOLD):
             model.train()
             running_loss = 0.0
 

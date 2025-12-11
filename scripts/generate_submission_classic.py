@@ -9,7 +9,7 @@ import pandas as pd
 from torch.utils.data import DataLoader
 from src.models.TCN import UniversalTrafficModel
 from src.dataset.dataset import TrainDataset, TestDataset
-from config import SEQ_LEN, HORIZON, BATCH_SIZE, INPUT_DIM, AGGREGATE, HIDDEN_CHANNELS
+from config import DROPOUT, USE_ATTENTION, SEQ_LEN, HORIZON, BATCH_SIZE, INPUT_DIM, AGGREGATE, HIDDEN_CHANNELS
 
 
 FEATURES_PATH = "data/features/final_features.csv"
@@ -51,9 +51,14 @@ def generate_submission():
         seq_len=SEQ_LEN, 
         prediction_steps=HORIZON, 
         num_classes=4, 
-        dropout=0.3,
-        aggregate=AGGREGATE
+        dropout=DROPOUT,
+        aggregate=AGGREGATE,
+        use_attention=USE_ATTENTION
     ).to(DEVICE)
+    
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Infos : \n - Input Dim : {INPUT_DIM} \n - Aggregate : {AGGREGATE} \n - Use Attention : {USE_ATTENTION} \n - Model has {num_params} trainable parameters.\n - Batch Size : {BATCH_SIZE}\n - Hidden Channels : {HIDDEN_CHANNELS}\n - Dropout : {DROPOUT}")
+    
     
     model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE, weights_only=False))
     model.eval()
