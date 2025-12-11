@@ -14,18 +14,13 @@ from sklearn.metrics import accuracy_score, f1_score
 from sklearn.utils.class_weight import compute_class_weight
 
 from src.dataset.dataset import TrainDataset
-from src.models.TCN import MultiHeadSequenceModel
+from src.models.TCN import UniversalTrafficModel
+
+from config import SEQ_LEN, EMBARGO, HORIZON, BATCH_SIZE, INPUT_DIM, AGGREGATE, HIDDEN_CHANNELS, LR, EPOCHS, N_SPLITS
 
 
 FEATURES_PATH = "data/features/final_features.csv"
 TRAIN_CSV_PATH = "data/Train.csv"
-SEQ_LEN = 15
-HORIZON = 7
-EMBARGO = 0
-BATCH_SIZE = 32
-LR = 0.001
-EPOCHS = 50
-N_SPLITS = 5
 DEVICE = torch.device("cuda" if torch.cuda.is_available(
 ) else "mps" if torch.backends.mps.is_available() else "cpu")
 
@@ -85,7 +80,7 @@ def train_kfold():
 
     full_ds = TrainDataset(
         FEATURES_PATH, TRAIN_CSV_PATH, SEQ_LEN, EMBARGO, HORIZON,
-        split_ratio=1.0, mode='train', aggregate=True
+        split_ratio=1.0, mode='train', aggregate=AGGREGATE
     )
 
     kfold = KFold(n_splits=N_SPLITS, shuffle=True, random_state=42)
@@ -112,9 +107,10 @@ def train_kfold():
             train_sub, batch_size=BATCH_SIZE, shuffle=True)
         val_loader = DataLoader(val_sub, batch_size=BATCH_SIZE, shuffle=False)
 
-        model = MultiHeadSequenceModel(
-            input_dim=328, hidden_channels=[64, 64, 64, 64],
-            seq_len=SEQ_LEN, prediction_steps=HORIZON, num_streams=4, num_classes=4, dropout=0.3
+        model = UniversalTrafficModel(
+            input_dim=INPUT_DIM, hidden_channels=HIDDEN_CHANNELS,
+            seq_len=SEQ_LEN, prediction_steps=HORIZON, num_classes=4, dropout=0.3,
+            aggregate=AGGREGATE
         ).to(DEVICE)
 
         criterion = nn.CrossEntropyLoss(weight=weights_tensor)
@@ -148,7 +144,7 @@ def train_kfold():
                 best_score = score
                 best_model_wts = copy.deepcopy(model.state_dict())
                 torch.save(model.state_dict(),
-                           f"models/best_model_fold_{fold}.pth")
+                           f"models/best_model_fold_{fold}_aggregate_{AGGREGATE}.pth")
 
             if epoch % 5 == 0:
                 print(

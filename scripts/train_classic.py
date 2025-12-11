@@ -13,16 +13,12 @@ from sklearn.metrics import accuracy_score, f1_score
 from sklearn.utils.class_weight import compute_class_weight
 
 from src.dataset.dataset import TrainDataset
-from src.models.TCN import MultiHeadSequenceModel
+from src.models.TCN import UniversalTrafficModel
+
+from config import SEQ_LEN, EMBARGO, HORIZON, BATCH_SIZE, INPUT_DIM, AGGREGATE, HIDDEN_CHANNELS, LR, EPOCHS
 
 FEATURES_PATH = "data/features/final_features.csv"
 TRAIN_CSV_PATH = "data/Train.csv"
-SEQ_LEN = 15
-HORIZON = 7
-EMBARGO = 0
-BATCH_SIZE = 32
-LR = 0.001
-EPOCHS = 100
 DEVICE = torch.device("cuda" if torch.cuda.is_available(
 ) else "mps" if torch.backends.mps.is_available() else "cpu")
 
@@ -82,10 +78,10 @@ def train():
     print(f"Running on device: {DEVICE}")
 
     train_ds = TrainDataset(FEATURES_PATH, TRAIN_CSV_PATH, SEQ_LEN,
-                            EMBARGO, HORIZON, split_ratio=0.8, mode='train', aggregate=True)
+                            EMBARGO, HORIZON, split_ratio=0.8, mode='train', aggregate=AGGREGATE)
     train_stats = (train_ds.mean, train_ds.std)
     val_ds = TrainDataset(FEATURES_PATH, TRAIN_CSV_PATH, SEQ_LEN, EMBARGO,
-                          HORIZON, split_ratio=0.8, mode='test', aggregate=True, stats=train_stats)
+                          HORIZON, split_ratio=0.8, mode='test', aggregate=AGGREGATE, stats=train_stats)
 
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False)
@@ -100,9 +96,10 @@ def train():
     weights_tensor = torch.tensor(weights, dtype=torch.float32).to(DEVICE)
     print(f"Weights: {weights}")
 
-    model = MultiHeadSequenceModel(
-        input_dim=328, hidden_channels=[64, 64, 64, 64],
-        seq_len=SEQ_LEN, prediction_steps=HORIZON, num_streams=4, num_classes=4, dropout=0.3,
+    model = UniversalTrafficModel(
+        input_dim=INPUT_DIM, hidden_channels=HIDDEN_CHANNELS,
+        seq_len=SEQ_LEN, prediction_steps=HORIZON, num_classes=4, dropout=0.3,
+        aggregate=AGGREGATE
     ).to(DEVICE)
 
     criterion = nn.CrossEntropyLoss(weight=weights_tensor)
@@ -140,12 +137,12 @@ def train():
         if score > best_score:
             best_score = score
             best_model_wts = copy.deepcopy(model.state_dict())
-            torch.save(model.state_dict(), "models/best_model_classic.pth")
-        print(
-            f"Epoch {epoch+1} | Loss: {avg_loss:.4f} | Score: {score:.4f} (F1: {f1:.4f} Acc : {acc:.4f}) Learning Rate : {optimizer.param_groups[0]['lr']:.6f} [BEST]")
-    else:
-        print(
-            f"Epoch {epoch+1} | Loss: {avg_loss:.4f} | Score: {score:.4f} (F1: {f1:.4f} Acc : {acc:.4f}) Learning Rate : {optimizer.param_groups[0]['lr']:.6f}")
+            torch.save(model.state_dict(), f"models/best_model_classic_aggregate_{AGGREGATE}.pth")
+            print(
+                f"Epoch {epoch+1} | Loss: {avg_loss:.4f} | Score: {score:.4f} (F1: {f1:.4f} Acc : {acc:.4f}) Learning Rate : {optimizer.param_groups[0]['lr']:.6f} [BEST]")
+        else:
+            print(
+                f"Epoch {epoch+1} | Loss: {avg_loss:.4f} | Score: {score:.4f} (F1: {f1:.4f} Acc : {acc:.4f}) Learning Rate : {optimizer.param_groups[0]['lr']:.6f}")
 
     print(f"\nTraining Complete. Best Score: {best_score:.4f}")
 

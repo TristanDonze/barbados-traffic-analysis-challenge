@@ -97,6 +97,44 @@ class MultiHeadSequenceModel(nn.Module):
         return torch.stack(outputs, dim=1)
 
 
+class UniversalTrafficModel(nn.Module):
+    def __init__(self, input_dim, hidden_channels, seq_len, prediction_steps, num_classes=4, dropout=0.2, aggregate=True):
+        super(UniversalTrafficModel, self).__init__()
+        
+        self.aggregate = aggregate
+        
+        if self.aggregate:
+            self.num_streams = 4 
+        else:
+            self.num_streams = 1
+            
+        self.prediction_steps = prediction_steps
+        self.num_classes = num_classes
+
+        self.backbone = TemporalConvNet(input_dim, hidden_channels, kernel_size=3, dropout=dropout)
+        
+        final_dim = hidden_channels[-1]
+        
+        self.heads = nn.ModuleList([
+            nn.Linear(final_dim, prediction_steps * num_classes) 
+            for _ in range(self.num_streams)
+        ])
+
+    def forward(self, x):
+        
+        x = x.transpose(1, 2)
+        out = self.backbone(x)
+        context = out[:, :, -1]
+
+        outputs = []
+        for head in self.heads:
+            head_out = head(context)
+            head_out = head_out.view(-1, self.prediction_steps, self.num_classes)
+            outputs.append(head_out)
+
+        return torch.stack(outputs, dim=1)
+    
+
 if __name__ == "__main__":
     SEQ_LEN = 15
     HORIZON = 7
@@ -106,16 +144,39 @@ if __name__ == "__main__":
     DEVICE = torch.device("cuda" if torch.cuda.is_available(
     ) else "mps" if torch.backends.mps.is_available() else "cpu")
 
-    model = MultiHeadSequenceModel(
+    # model = MultiHeadSequenceModel(
+    #     input_dim=328,
+    #     hidden_channels=[64, 64, 64, 64],
+    #     seq_len=SEQ_LEN,
+    #     prediction_steps=HORIZON,
+    #     num_streams=4,
+    #     num_classes=4,
+    #     dropout=0.3
+    # ).to(DEVICE)
+    
+    model_1 = UniversalTrafficModel(
+        input_dim=82,
+        hidden_channels=[64, 64, 64, 64],
+        seq_len=SEQ_LEN,
+        prediction_steps=HORIZON,
+        num_classes=4,
+        dropout=0.3,
+        aggregate=False
+    ).to(DEVICE)
+    
+    model_2 = UniversalTrafficModel(
         input_dim=328,
         hidden_channels=[64, 64, 64, 64],
         seq_len=SEQ_LEN,
         prediction_steps=HORIZON,
-        num_streams=4,
         num_classes=4,
-        dropout=0.3
+        dropout=0.3,
+        aggregate=True
     ).to(DEVICE)
 
-    X = torch.randn(BATCH_SIZE, SEQ_LEN, 328).to(DEVICE)
-    outputs = model(X)
-    print(f"Output shape: {outputs.shape}")
+    X_1 = torch.randn(BATCH_SIZE, SEQ_LEN, 82).to(DEVICE)
+    outputs_1 = model_1(X_1)
+    print(f"Output shape (individual): {outputs_1.shape}")
+    X_2 = torch.randn(BATCH_SIZE, SEQ_LEN, 328).to(DEVICE)
+    outputs_2 = model_2(X_2)
+    print(f"Output shape (aggregate): {outputs_2.shape}")

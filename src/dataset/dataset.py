@@ -132,7 +132,7 @@ class TestDataset(Dataset):
 
         df_feat = pd.read_csv(features_path)
         df_test = pd.read_csv(test_path)
-
+        
         df_feat.columns = df_feat.columns.str.strip()
         df_test.columns = df_test.columns.str.strip()
 
@@ -140,21 +140,19 @@ class TestDataset(Dataset):
             if df_feat[col].dtype == object:
                 first = df_feat[col].iloc[0]
                 if isinstance(first, str) and first.startswith('['):
-                    df_feat[col] = df_feat[col].apply(
-                        lambda x: literal_eval(x) if isinstance(x, str) else x)
+                    df_feat[col] = df_feat[col].apply(lambda x: literal_eval(x) if isinstance(x, str) else x)
 
-        df = pd.merge(df_feat, df_test[[
-                      'videos', 'time_segment_id', 'view_label', 'ID_enter']], on='videos', how='inner')
+        df = pd.merge(df_feat, df_test[['videos', 'time_segment_id', 'view_label', 'ID_enter']], on='videos', how='inner')
 
         feature_cols = [c for c in df.columns if c.startswith("feature_")]
 
         if self.aggregate:
             df['time_segment_id'] = df['time_segment_id'].astype(int)
-            df_pivot = df.pivot(index='time_segment_id',
-                                columns='view_label', values=feature_cols)
+            df_pivot = df.pivot(index='time_segment_id', columns='view_label', values=feature_cols)
             df_pivot.columns = [f"{c[0]}_{c[1]}" for c in df_pivot.columns]
-
+            
             self.data = df_pivot.sort_index()
+            
             x_arrays = []
             for col in df_pivot.columns:
                 s = self.data[col]
@@ -163,13 +161,15 @@ class TestDataset(Dataset):
                     x_arrays.append(np.stack(s.values))
                 else:
                     x_arrays.append(s.values.reshape(-1, 1))
-
-            self.X = np.concatenate(x_arrays, axis=1).astype(
-                np.float32) if x_arrays else np.empty((0, 0), dtype=np.float32)
+            
+            self.X = np.concatenate(x_arrays, axis=1).astype(np.float32)
             self.ids = self.data.index.values
-            self.groups = np.zeros(len(self.ids))
+            
+            self.cam_names = None 
+
         else:
             df = df.sort_values(['view_label', 'time_segment_id'])
+            
             x_arrays = []
             for col in feature_cols:
                 col_data = df[col].values
@@ -177,42 +177,56 @@ class TestDataset(Dataset):
                     x_arrays.append(np.stack(col_data))
                 else:
                     x_arrays.append(col_data.reshape(-1, 1))
-            self.X = np.concatenate(x_arrays, axis=1).astype(
-                np.float32) if x_arrays else np.empty((0, 0), dtype=np.float32)
+            
+            self.X = np.concatenate(x_arrays, axis=1).astype(np.float32)
             self.ids = df['time_segment_id'].values
+            
+            self.cam_names = df['view_label'].values 
+            
             self.groups = df['view_label'].values
-
-        self.indices = []
-        if len(self.ids) > 0:
-            diff_ids = self.ids[1:] - self.ids[:-1]
-            diff_group = (self.groups[1:] != self.groups[:-1])
-            is_break = (diff_ids != 1) | diff_group
-            starts = np.concatenate(([0], np.where(is_break)[0] + 1))
-            ends = np.concatenate((np.where(is_break)[0] + 1, [len(self.ids)]))
-
-            for s, e in zip(starts, ends):
-                if (e - s) >= self.seq_len:
-                    for i in range((e - s) - self.seq_len + 1):
-                        self.indices.append(s + i)
 
         if stats is not None:
             self.mean, self.std = stats
             self.X = (self.X - self.mean) / self.std
+
+        self.indices = []
+        if self.aggregate:
+            ids = self.ids
+            diff_ids = ids[1:] - ids[:-1]
+            is_break = (diff_ids != 1)
+            starts = np.concatenate(([0], np.where(is_break)[0] + 1))
+            ends = np.concatenate((np.where(is_break)[0] + 1, [len(ids)]))
+            for s, e in zip(starts, ends):
+                if (e - s) >= self.seq_len:
+                    for i in range((e - s) - self.seq_len + 1):
+                        self.indices.append(s + i)
         else:
-            print("WARNING: No stats provided for TestDataset. Data is not normalized.")
+            ids = self.ids
+            groups = self.groups
+            diff_ids = ids[1:] - ids[:-1]
+            diff_group = (groups[1:] != groups[:-1])
+            is_break = (diff_ids != 1) | diff_group
+            starts = np.concatenate(([0], np.where(is_break)[0] + 1))
+            ends = np.concatenate((np.where(is_break)[0] + 1, [len(ids)]))
+            for s, e in zip(starts, ends):
+                if (e - s) >= self.seq_len:
+                    for i in range((e - s) - self.seq_len + 1):
+                        self.indices.append(s + i)
 
     def __len__(self):
         return len(self.indices)
 
     def __getitem__(self, idx):
         i = self.indices[idx]
-
+        
         X_tensor = torch.tensor(self.X[i:i+self.seq_len], dtype=torch.float32)
-
+        
         last_time_idx = i + self.seq_len - 1
         last_segment_id = self.ids[last_time_idx]
-
-        return X_tensor, last_segment_id
+        
+        cam_name = "ALL" if self.aggregate else self.cam_names[last_time_idx]
+        
+        return X_tensor, last_segment_id, cam_name
 
 
 if __name__ == "__main__":
