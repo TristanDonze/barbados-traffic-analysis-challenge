@@ -8,5 +8,5 @@ data/videos/
 data/videos_not_full/
 results/
 kaggle_cache
-models/
+pretrained_models/
 prototype/
