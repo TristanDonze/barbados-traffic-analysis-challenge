@@ -8,6 +8,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+
+from torch.amp import autocast, GradScaler
+from torch.optim.lr_scheduler import OneCycleLR
+
+
 from sklearn.model_selection import KFold
 from torch.utils.data import DataLoader, Subset
 from sklearn.metrics import accuracy_score, f1_score
@@ -23,34 +28,6 @@ FEATURES_PATH = "data/features/final_features.csv"
 TRAIN_CSV_PATH = "data/Train.csv"
 DEVICE = torch.device("cuda" if torch.cuda.is_available(
 ) else "mps" if torch.backends.mps.is_available() else "cpu")
-
-def train_one_epoch(model, loader, criterion, optimizer, device):
-    model.train()
-    running_loss = 0.0
-    correct = 0
-    total = 0
-
-    for inputs, targets in loader:
-        inputs, targets = inputs.to(device), targets.to(device)
-
-        optimizer.zero_grad()
-        outputs = model(inputs)
-
-        outputs_flat = outputs.view(-1, outputs.shape[-1])
-        targets_flat = targets.view(-1)
-
-        loss = criterion(outputs_flat, targets_flat)
-        loss.backward()
-        optimizer.step()
-
-        running_loss += loss.item()
-
-        _, predicted = torch.max(outputs_flat.data, 1)
-        total += targets_flat.size(0)
-        correct += (predicted == targets_flat).sum().item()
-
-    return running_loss / len(loader), 100 * correct / total
-
 
 def evaluate(model, loader, device):
     model.eval()
@@ -84,7 +61,7 @@ def train_kfold():
     )
 
     kfold = KFold(n_splits=N_SPLITS, shuffle=True, random_state=42)
-
+    
     all_targets = []
     for _, y in full_ds:
         all_targets.append(y.numpy().flatten())
@@ -114,12 +91,13 @@ def train_kfold():
         ).to(DEVICE)
         
         num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(f"Model has {num_params} trainable parameters.")
+        print(f"Infos : \n - Input Dim : {INPUT_DIM} \n - Aggregate : {AGGREGATE} \n - Use Attention : {USE_ATTENTION} \n - Model has {num_params} trainable parameters.\n - Batch Size : {BATCH_SIZE}\n - Hidden Channels : {HIDDEN_CHANNELS}\n - Dropout : {DROPOUT}")
 
-        criterion = nn.CrossEntropyLoss(weight=weights_tensor)
-        optimizer = optim.Adam(model.parameters(), lr=LR)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='max', factor=0.5, patience=3, min_lr=1e-4)
+        criterion = nn.CrossEntropyLoss(weight=weights_tensor, label_smoothing=0.05)
+        scaler = GradScaler(DEVICE)
+        optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-5)
+        steps_per_epoch = len(train_loader)
+        scheduler = OneCycleLR(optimizer, max_lr=LR, steps_per_epoch=steps_per_epoch, epochs=EPOCHS_PER_FOLD)
 
         best_score = 0.0
         best_model_wts = copy.deepcopy(model.state_dict())
@@ -131,17 +109,19 @@ def train_kfold():
             for inputs, targets in train_loader:
                 inputs, targets = inputs.to(DEVICE), targets.to(DEVICE)
                 optimizer.zero_grad()
-                outputs = model(inputs)
-                loss = criterion(outputs.view(-1, 4), targets.view(-1))
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), max_norm=1.0)
-                optimizer.step()
+                with autocast(device_type=DEVICE.type):
+                    outputs = model(inputs)
+                    loss = criterion(outputs.view(-1, 4), targets.view(-1))
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                scaler.step(optimizer)
+                scaler.update()
+                scheduler.step()
                 running_loss += loss.item()
 
             avg_loss = running_loss / len(train_loader)
             score, f1, acc = evaluate(model, val_loader, DEVICE)
-            scheduler.step(score)
 
             if score > best_score:
                 best_score = score

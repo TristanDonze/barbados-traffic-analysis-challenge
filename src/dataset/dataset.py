@@ -7,7 +7,7 @@ from ast import literal_eval
 
 class TrainDataset(Dataset):
     def __init__(self, features_path, train_path, seq_len, embargo, horizon, 
-                 split_ratio=0.8, mode='train', aggregate=False, stats=None):
+                 split_ratio=0.8, mode='train', aggregate=False, stats=None, random_state=42):
         self.seq_len = seq_len
         self.embargo = embargo
         self.horizon = horizon
@@ -119,9 +119,18 @@ class TrainDataset(Dataset):
                         window_groups.append(self.video_groups[start_idx])
 
         
-        gss = GroupShuffleSplit(n_splits=1, train_size=split_ratio, random_state=42)
+        # gss = GroupShuffleSplit(n_splits=1, train_size=split_ratio, random_state=random_state)
         
-        train_idx, val_idx = next(gss.split(all_indices, groups=window_groups))
+        # train_idx, val_idx = next(gss.split(all_indices, groups=window_groups))
+        
+        if split_ratio is None:
+            raise ValueError("split_ratio must be provided")
+        if isinstance(split_ratio, float) and split_ratio >= 1.0:
+            train_idx = np.arange(len(all_indices))
+            val_idx = np.array([], dtype=int)
+        else:
+            gss = GroupShuffleSplit(n_splits=1, train_size=split_ratio, random_state=random_state)
+            train_idx, val_idx = next(gss.split(all_indices, groups=window_groups))
         
         if mode == 'train':
             self.indices = [all_indices[i] for i in train_idx]
@@ -252,26 +261,67 @@ if __name__ == "__main__":
     EMBARGO_PARAM = 0
     HORIZON_PARAM = 7
     AGG = False
+    SPLIT = 0.8
 
-    print("--- Train ---")
-    try:
-        train_ds = TrainDataset(
-            FEATURES, TRAIN, SEQ_LEN, EMBARGO_PARAM, HORIZON_PARAM, mode='train', aggregate=AGG)
-        print(f"Train size: {len(train_ds)}")
-        if len(train_ds) > 0:
-            ldr = DataLoader(train_ds, batch_size=2, shuffle=True)
-            bx, by = next(iter(ldr))
-            print(f"Batch X: {bx.shape}, Batch y: {by.shape}")
-    except Exception as e:
-        print(f"Train Error: {e}")
+    print(f"--- LEAKAGE CHECK (Aggregate={AGG}) ---")
 
-    print("\n--- Test ---")
+    print("Loading Train Split...")
+    train_ds = TrainDataset(
+        FEATURES, TRAIN, SEQ_LEN, EMBARGO_PARAM, HORIZON_PARAM, 
+        split_ratio=SPLIT, mode='train', aggregate=AGG
+    )
+    
+    print("Loading Val Split...")
+    val_ds = TrainDataset(
+        FEATURES, TRAIN, SEQ_LEN, EMBARGO_PARAM, HORIZON_PARAM, 
+        split_ratio=SPLIT, mode='test', aggregate=AGG
+    )
+
+    print(f"\nTrain samples: {len(train_ds)}")
+    print(f"Val samples:   {len(val_ds)}")
+
+    train_indices_set = set(train_ds.indices)
+    val_indices_set = set(val_ds.indices)
+    
+    idx_intersection = train_indices_set.intersection(val_indices_set)
+    
+    print(f"\n[Test 1] Window Overlap Check")
+    if len(idx_intersection) == 0:
+        print("SUCCESS: No common windows found between Train and Val.")
+    else:
+        print(f"FAILURE: Found {len(idx_intersection)} overlapping windows!")
+
+    
+    train_videos = set()
+    for s, _ in train_ds.indices:
+        video_id = train_ds.video_groups[s]
+        train_videos.add(video_id)
+        
+    val_videos = set()
+    for s, _ in val_ds.indices:
+        video_id = val_ds.video_groups[s]
+        val_videos.add(video_id)
+        
+    video_intersection = train_videos.intersection(val_videos)
+    
+    print(f"\n[Test 2] Video Leakage Check")
+    print(f"Unique Videos in Train: {len(train_videos)}")
+    print(f"Unique Videos in Val:   {len(val_videos)}")
+    
+    if len(video_intersection) == 0:
+        print("SUCCESS: Train and Val sets contain completely different videos.")
+    else:
+        print(f"FAILURE: Found {len(video_intersection)} videos present in BOTH sets!")
+        print(f"Leaking videos: {list(video_intersection)[:5]}...")
+
+    print("\n[Test 3] DataLoader Smoke Test")
     try:
-        test_ds = TestDataset(FEATURES, TEST, SEQ_LEN, aggregate=AGG)
-        print(f"Test size: {len(test_ds)}")
-        if len(test_ds) > 0:
-            ldr = DataLoader(test_ds, batch_size=2)
-            bx = next(iter(ldr))
-            print(f"Batch X: {bx.shape}")
+        ldr = DataLoader(train_ds, batch_size=2, shuffle=True)
+        bx, by = next(iter(ldr))
+        print(f"Train Batch X: {bx.shape}, Y: {by.shape} - OK")
+        
+        ldr_val = DataLoader(val_ds, batch_size=2)
+        bx_v, by_v = next(iter(ldr_val))
+        print(f"Val Batch X:   {bx_v.shape}, Y: {by_v.shape} - OK")
     except Exception as e:
-        print(f"Test Error: {e}")
+        print(f"Batch Error: {e}")
