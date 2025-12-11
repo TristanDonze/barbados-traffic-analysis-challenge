@@ -9,4 +9,4 @@ data/videos_not_full/
 results/
 kaggle_cache
 pretrained_models/
-prototype/
+prototypes
