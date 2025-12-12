@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from src.models.TCN import UniversalTrafficModel
 from src.dataset.dataset import TrainDataset, TestDataset
-from config import DROPOUT, SEQ_LEN, HORIZON, BATCH_SIZE, INPUT_DIM, AGGREGATE, HIDDEN_CHANNELS
+from config import DROPOUT, SEQ_LEN, HORIZON, BATCH_SIZE, INPUT_DIM, AGGREGATE, HIDDEN_CHANNELS, N_SPLITS
 
 FEATURES_PATH = "data/features/final_features.csv"
 TRAIN_CSV_PATH = "data/Train.csv"
