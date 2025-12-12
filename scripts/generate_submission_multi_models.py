@@ -45,7 +45,7 @@ def generate_submission_from_models():
     test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False)
     
     models = []
-    for fold in range(5):
+    for fold in range(N_SPLITS):
         model = UniversalTrafficModel(
             input_dim=INPUT_DIM, 
             hidden_channels=HIDDEN_CHANNELS, 
@@ -65,7 +65,6 @@ def generate_submission_from_models():
     submission_rows = []
 
     with torch.no_grad():
-        # Récupération de batch_cam_names pour le cas AGGREGATE=False
         for inputs, last_ids, batch_cam_names in tqdm(test_loader, desc="Ensemble Inference"):
             inputs = inputs.to(DEVICE)
             
@@ -73,7 +72,6 @@ def generate_submission_from_models():
             for model in models:
                 fold_outputs.append(model(inputs))
             
-            # Moyenne des logits
             ensemble_logits = torch.stack(fold_outputs).mean(dim=0)
             
             preds = torch.argmax(ensemble_logits, dim=-1).cpu().numpy()
@@ -83,7 +81,6 @@ def generate_submission_from_models():
                 current_last_id = last_ids[b]
                 batch_preds = preds[b]
                 
-                # Logique conditionnelle pour l'itérateur
                 if AGGREGATE:
                     iterator = enumerate(CAM_NAMES) 
                 else:
