@@ -22,8 +22,8 @@ from src.models.TCN import UniversalTrafficModel
 
 from .config import DROPOUT, SEQ_LEN, EMBARGO, HORIZON, BATCH_SIZE, INPUT_DIM, AGGREGATE, USE_ATTENTION, HIDDEN_CHANNELS, LR, EPOCHS
 
-FEATURES_PATH = "/Data/barbados/barbados-traffic-analysis-challenge/data/features/final_features.csv"
-TRAIN_CSV_PATH = "/Data/barbados/barbados-traffic-analysis-challenge/data/Train.csv"
+FEATURES_PATH = "data/features/final_features.csv"
+TRAIN_CSV_PATH = "data/Train.csv"
 DEVICE = torch.device("cuda" if torch.cuda.is_available(
 ) else "mps" if torch.backends.mps.is_available() else "cpu")
 
