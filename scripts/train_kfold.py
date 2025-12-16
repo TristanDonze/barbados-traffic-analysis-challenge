@@ -21,7 +21,7 @@ from sklearn.utils.class_weight import compute_class_weight
 from src.dataset.dataset import TrainDataset
 from src.models.TCN import UniversalTrafficModel
 
-from config import DROPOUT, SEQ_LEN, EMBARGO, HORIZON, BATCH_SIZE, INPUT_DIM, USE_ATTENTION, AGGREGATE, HIDDEN_CHANNELS, LR, EPOCHS_PER_FOLD, N_SPLITS
+from .config import DROPOUT, SEQ_LEN, EMBARGO, HORIZON, BATCH_SIZE, INPUT_DIM, USE_ATTENTION, AGGREGATE, HIDDEN_CHANNELS, LR, EPOCHS_PER_FOLD, N_SPLITS
 
 
 FEATURES_PATH = "data/features/final_features.csv"
@@ -102,6 +102,15 @@ def train_kfold():
         best_score = 0.0
         best_model_wts = copy.deepcopy(model.state_dict())
 
+        logs = {
+            "epoch": [],
+            "train_loss": [],
+            "val_score": [],
+            "val_f1": [],
+            "val_acc": []
+        }
+        
+        print("\n--- Starting Training ---")
         for epoch in range(EPOCHS_PER_FOLD):
             model.train()
             running_loss = 0.0
@@ -123,6 +132,12 @@ def train_kfold():
             avg_loss = running_loss / len(train_loader)
             score, f1, acc = evaluate(model, val_loader, DEVICE)
 
+            logs["epoch"].append(epoch + 1)
+            logs["train_loss"].append(avg_loss)
+            logs["val_score"].append(score)
+            logs["val_f1"].append(f1)
+            logs["val_acc"].append(acc)
+            
             if score > best_score:
                 best_score = score
                 best_model_wts = copy.deepcopy(model.state_dict())
@@ -133,6 +148,8 @@ def train_kfold():
                 print(
                     f"  Ep {epoch} | Loss: {avg_loss:.3f} | Score: {score:.3f} (F1: {f1:.4f} Acc : {acc:.4f}) Learning Rate : {optimizer.param_groups[0]['lr']:.6f} ")
 
+        torch.save(logs, f"output/training_logs_fold_{fold}_aggregate_{AGGREGATE}_attn_{USE_ATTENTION}.pth")
+        
         print(f"Fold {fold+1} Best Score: {best_score:.4f}")
         results.append(best_score)
 

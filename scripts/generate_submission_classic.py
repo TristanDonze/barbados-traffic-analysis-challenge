@@ -9,20 +9,20 @@ import pandas as pd
 from torch.utils.data import DataLoader
 from src.models.TCN import UniversalTrafficModel
 from src.dataset.dataset import TrainDataset, TestDataset
-from config import DROPOUT, USE_ATTENTION, SEQ_LEN, HORIZON, BATCH_SIZE, INPUT_DIM, AGGREGATE, HIDDEN_CHANNELS
+from .config import DROPOUT, USE_ATTENTION, SEQ_LEN, HORIZON, BATCH_SIZE, INPUT_DIM, AGGREGATE, HIDDEN_CHANNELS
 
 
 FEATURES_PATH = "data/features/final_features.csv"
 TRAIN_CSV_PATH = "data/Train.csv"
 TEST_INPUT_PATH = "data/TestInputSegments.csv"
-OUTPUT_CSV = "output/submission.csv"
+OUTPUT_CSV = f"output/submission_classic_aggregate_{AGGREGATE}_attn_{USE_ATTENTION}.csv"
 
 INV_MAP = {0: "free flowing", 1: "light delay", 2: "moderate delay", 3: "heavy delay"}
 CAM_NAMES = ["Norman Niles #1", "Norman Niles #2", "Norman Niles #3", "Norman Niles #4"]
 
 def generate_submission():
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-    MODEL_PATH = f"models/best_model_classic_aggregate_{AGGREGATE}.pth"
+    MODEL_PATH = f"models/best_model_classic_aggregate_{AGGREGATE}_attn_{USE_ATTENTION}.pth"
     
     train_ds_temp = TrainDataset(
         FEATURES_PATH, 

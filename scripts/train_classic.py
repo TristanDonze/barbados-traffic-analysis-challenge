@@ -20,48 +20,14 @@ from src.dataset.dataset import TrainDataset
 from src.models.TCN import UniversalTrafficModel
 
 
-from config import DROPOUT, SEQ_LEN, EMBARGO, HORIZON, BATCH_SIZE, INPUT_DIM, AGGREGATE, USE_ATTENTION, HIDDEN_CHANNELS, LR, EPOCHS
+from .config import DROPOUT, SEQ_LEN, EMBARGO, HORIZON, BATCH_SIZE, INPUT_DIM, AGGREGATE, USE_ATTENTION, HIDDEN_CHANNELS, LR, EPOCHS
 
-FEATURES_PATH = "data/features/final_features.csv"
-TRAIN_CSV_PATH = "data/Train.csv"
+FEATURES_PATH = "/Data/barbados/barbados-traffic-analysis-challenge/data/features/final_features.csv"
+TRAIN_CSV_PATH = "/Data/barbados/barbados-traffic-analysis-challenge/data/Train.csv"
 DEVICE = torch.device("cuda" if torch.cuda.is_available(
 ) else "mps" if torch.backends.mps.is_available() else "cpu")
 
 torch.manual_seed(42)
-
-# class EMA:
-#     def __init__(self, model, decay=0.999):
-#         self.decay = decay
-#         self.shadow = {n: p.clone().detach() for n, p in model.named_parameters() if p.requires_grad}
-#     def update(self, model):
-#         for n, p in model.named_parameters():
-#             if p.requires_grad:
-#                 self.shadow[n] = (1.0 - self.decay) * p.detach() + self.decay * self.shadow[n]
-#     def apply_shadow(self, model):
-#         self.backup = {n: p.clone().detach() for n, p in model.named_parameters() if p.requires_grad}
-#         for n, p in model.named_parameters():
-#             if p.requires_grad:
-#                 p.data.copy_(self.shadow[n])
-#     def restore(self, model):
-#         for n, p in model.named_parameters():
-#             if p.requires_grad:
-#                 p.data.copy_(self.backup[n])
-
-# class FocalLoss(nn.Module):
-#     def __init__(self, gamma=2.0, weight=None, reduction='mean'):
-#         super().__init__()
-#         self.gamma = gamma
-#         self.weight = weight
-#         self.reduction = reduction
-#     def forward(self, inputs, targets):
-#         # inputs: (N, C), targets: (N,)
-#         logp = torch.nn.functional.log_softmax(inputs, dim=-1)
-#         p = logp.exp()
-#         ce = torch.nn.functional.nll_loss(logp, targets, weight=self.weight, reduction='none')
-#         pt = p.gather(1, targets.unsqueeze(1)).squeeze(1)
-#         loss = ce * ((1 - pt) ** self.gamma)
-#         return loss.mean() if self.reduction=='mean' else loss.sum()
-
 
 def evaluate(model, loader, device):
     model.eval()
@@ -118,15 +84,21 @@ def train():
     print(f"Infos : \n - Input Dim : {INPUT_DIM} \n - Aggregate : {AGGREGATE} \n - Use Attention : {USE_ATTENTION} \n - Model has {num_params} trainable parameters.\n - Batch Size : {BATCH_SIZE}\n - Hidden Channels : {HIDDEN_CHANNELS}\n - Dropout : {DROPOUT}")
 
     criterion = nn.CrossEntropyLoss(weight=weights_tensor, label_smoothing=0.05)
-    # criterion = FocalLoss(gamma=1.0, weight=weights_tensor)
     scaler = GradScaler(DEVICE)
     optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-5)
     steps_per_epoch = len(train_loader)
     scheduler = OneCycleLR(optimizer, max_lr=LR, steps_per_epoch=steps_per_epoch, epochs=EPOCHS)
-    # ema = EMA(model, decay=0.999)
 
     best_score = 0.0
     best_model_wts = copy.deepcopy(model.state_dict())
+
+    logs = {
+        "epoch": [],
+        "train_loss": [],
+        "val_score": [],
+        "val_f1": [],
+        "val_acc": []
+    }
 
     print("\n--- Starting Training ---")
     for epoch in range(EPOCHS):
@@ -150,21 +122,26 @@ def train():
         avg_loss = running_loss / len(train_loader)
         score, f1, acc = evaluate(model, val_loader, DEVICE)
 
+        logs["epoch"].append(epoch + 1)
+        logs["train_loss"].append(avg_loss)
+        logs["val_score"].append(score)
+        logs["val_f1"].append(f1)
+        logs["val_acc"].append(acc)
 
         if score > best_score:
             best_score = score
             best_model_wts = copy.deepcopy(model.state_dict())
-            torch.save(model.state_dict(), f"models/best_model_classic_aggregate_{AGGREGATE}.pth")
+            torch.save(model.state_dict(), f"models/best_model_classic_aggregate_{AGGREGATE}_attn_{USE_ATTENTION}.pth")
             print(
                 f"Epoch {epoch+1} | Loss: {avg_loss:.4f} | Score: {score:.4f} (F1: {f1:.4f} Acc : {acc:.4f}) Learning Rate : {optimizer.param_groups[0]['lr']:.6f} [BEST]")
         else:
-            print(
-                f"Epoch {epoch+1} | Loss: {avg_loss:.4f} | Score: {score:.4f} (F1: {f1:.4f} Acc : {acc:.4f}) Learning Rate : {optimizer.param_groups[0]['lr']:.6f}")
+            print(f"Epoch {epoch + 1} | Loss: {avg_loss:.3f} | Score: {score:.3f} (F1: {f1:.4f} Acc : {acc:.4f}) Learning Rate : {optimizer.param_groups[0]['lr']:.6f} ")
 
     print(f"\nTraining Complete. Best Score: {best_score:.4f}")
 
     model.load_state_dict(best_model_wts)
 
+    torch.save(logs, f"output/training_logs_aggregate_{AGGREGATE}_attn_{USE_ATTENTION}.pth")
 
 if __name__ == "__main__":
     train()
