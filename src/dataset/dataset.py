@@ -117,11 +117,6 @@ class TrainDataset(Dataset):
                         start_idx = s + i
                         all_indices.append((start_idx, start_idx + self.seq_len + self.embargo))
                         window_groups.append(self.video_groups[start_idx])
-
-        
-        # gss = GroupShuffleSplit(n_splits=1, train_size=split_ratio, random_state=random_state)
-        
-        # train_idx, val_idx = next(gss.split(all_indices, groups=window_groups))
         
         if split_ratio is None:
             raise ValueError("split_ratio must be provided")
@@ -260,7 +255,7 @@ if __name__ == "__main__":
     SEQ_LEN = 15
     EMBARGO_PARAM = 0
     HORIZON_PARAM = 7
-    AGG = False
+    AGG = True
     SPLIT = 0.8
 
     print(f"--- LEAKAGE CHECK (Aggregate={AGG}) ---")
