@@ -90,7 +90,10 @@ def spacial_density_analysis(real_path):
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
-    video_path = "data/videos/normanniles1/normanniles1_2025-10-21-10-55-45.mp4"
+    output_dir = "/Data/barbados/plots"
+    os.makedirs(output_dir, exist_ok=True)
+
+    video_path = "/Data/barbados/barbados-traffic-analysis-challenge/data/videos/normanniles1/normanniles1_2025-10-20-06-00-45.mp4"
     real_path = os.path.realpath(video_path)
     occupancy_data = spacial_density_analysis(real_path)
     zones_names = ["Entry", "Exit", "Roundabout", "Total Combined"]
@@ -113,4 +116,4 @@ if __name__ == "__main__":
         plt.legend()
 
     plt.tight_layout()
-    plt.savefig("occupancy_analysis.png")
+    plt.savefig(os.path.join(output_dir, "occupancy_analysis.png"))

@@ -10,17 +10,12 @@ def get_temporal_features(video_path: str):
     Returns:
         dict: A dictionary containing temporal features.
     """
-    # Extract timestamp from the video filename
     filename = os.path.basename(video_path)
     timestamp_str = filename.split("_")[-1].replace(".mp4", "")
 
-    # Parse the timestamp
     dt_object = parse_timestamp(timestamp_str)
-    # print(f"Parsed datetime: {dt_object}")
-    # Encode cyclical time
     sin_time, cos_time = encode_cyclical_time(dt_object)
 
-    # Get one-hot encoded day of the week
     day_of_week_onehot = get_day_of_week_onehot(dt_object)
 
     return {

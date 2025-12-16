@@ -69,7 +69,6 @@ def extract_yolo_tracking_data(real_path):
 if __name__ == "__main__":
     video_file = "data/videos/normanniles3/normanniles3_2025-10-26-17-37-45.mp4"
 
-    # Load your binary masks here (grayscale)
     entry_mask = cv2.imread(
         "src/mask/road_mask/normanniles3_entry_mask.png", 0)
     exit_mask = cv2.imread(
